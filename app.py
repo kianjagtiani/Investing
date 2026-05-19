@@ -90,66 +90,83 @@ def portfolio():
 
 # ── Analysis API (unchanged, called by stock.html) ────────────────────────────
 
+_DISPLAY_DAYS = {"3mo": 95, "6mo": 185, "1y": 370, "3y": 1100}
+
+
 @app.route("/api/analyze")
 def analyze():
+    import time
     raw = request.args.get("ticker", "").strip()
     period = request.args.get("period", "1y")
     if not raw:
         return jsonify({"error": "Please enter a ticker symbol."}), 400
     if period not in VALID_PERIODS:
         period = "1y"
-    try:
-        df, ticker_obj, resolved, info = fetch_data(raw, period)
-        df = compute_indicators(df)
-        support, resistance = find_support_resistance(df)
-        phase, phase_desc = detect_phase(df)
-        levels = compute_targets_stoploss(df, support, resistance)
-        summary = generate_summary(df, phase, levels)
-        shareholding = get_shareholding(info, resolved)
-        company = get_company_info(info)
 
-        if len(df) >= 2:
-            prev = float(df["Close"].iloc[-2])
-            curr = float(df["Close"].iloc[-1])
-            day_change = round(curr - prev, 4)
-            day_pct = round((curr / prev - 1) * 100, 2)
-        else:
-            day_change = day_pct = 0.0
+    last_err = None
+    for attempt in range(2):
+        try:
+            # Always fetch 3y so MA200 is fully populated; trim to display period after
+            df_full, ticker_obj, resolved, info = fetch_data(raw, "3y")
+            df_full = compute_indicators(df_full)
 
-        dates = [str(d.date()) for d in df.index]
-        close = df["Close"]
-        vol_colors = [
-            "#26de81" if close.iloc[i] >= close.iloc[i - 1] else "#fc5c65"
-            for i in range(len(df))
-        ]
+            display_days = _DISPLAY_DAYS.get(period, 370)
+            cutoff = df_full.index[-1] - pd.Timedelta(days=display_days)
+            df = df_full[df_full.index >= cutoff].copy()
 
-        return jsonify({
-            "ticker": raw.upper(), "resolved": resolved, "period": period,
-            "day_change": day_change, "day_pct": day_pct,
-            "phase": phase, "phase_description": phase_desc,
-            "summary": summary, "levels": levels,
-            "support": support, "resistance": resistance,
-            "company": company, "shareholding": shareholding,
-            "ohlcv": {
-                "dates": dates, "open": safe_list(df["Open"]),
-                "high": safe_list(df["High"]), "low": safe_list(df["Low"]),
-                "close": safe_list(df["Close"]), "volume": safe_list(df["Volume"]),
-                "vol_colors": vol_colors,
-            },
-            "indicators": {
-                "ma50": safe_list(df["MA50"]), "ma200": safe_list(df["MA200"]),
-                "bb_upper": safe_list(df["BB_upper"]), "bb_mid": safe_list(df["BB_mid"]),
-                "bb_lower": safe_list(df["BB_lower"]), "bb_width": safe_list(df["BB_width"]),
-                "bb_squeeze": [bool(x) for x in df["BB_squeeze"].fillna(False)],
-                "rsi": safe_list(df["RSI"]), "macd": safe_list(df["MACD"]),
-                "macd_sig": safe_list(df["MACD_sig"]), "macd_hist": safe_list(df["MACD_hist"]),
-                "atr": safe_list(df["ATR"]), "obv": safe_list(df["OBV"]),
-            },
-        })
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 404
-    except Exception as e:
-        return jsonify({"error": f"Analysis failed: {e}"}), 500
+            support, resistance = find_support_resistance(df)
+            phase, phase_desc = detect_phase(df)
+            levels = compute_targets_stoploss(df, support, resistance)
+            summary = generate_summary(df, phase, levels)
+            shareholding = get_shareholding(info, resolved)
+            company = get_company_info(info)
+
+            if len(df) >= 2:
+                prev = float(df["Close"].iloc[-2])
+                curr = float(df["Close"].iloc[-1])
+                day_change = round(curr - prev, 4)
+                day_pct = round((curr / prev - 1) * 100, 2)
+            else:
+                day_change = day_pct = 0.0
+
+            dates = [str(d.date()) for d in df.index]
+            close = df["Close"]
+            vol_colors = [
+                "#26de81" if close.iloc[i] >= close.iloc[i - 1] else "#fc5c65"
+                for i in range(len(df))
+            ]
+
+            return jsonify({
+                "ticker": raw.upper(), "resolved": resolved, "period": period,
+                "day_change": day_change, "day_pct": day_pct,
+                "phase": phase, "phase_description": phase_desc,
+                "summary": summary, "levels": levels,
+                "support": support, "resistance": resistance,
+                "company": company, "shareholding": shareholding,
+                "ohlcv": {
+                    "dates": dates, "open": safe_list(df["Open"]),
+                    "high": safe_list(df["High"]), "low": safe_list(df["Low"]),
+                    "close": safe_list(df["Close"]), "volume": safe_list(df["Volume"]),
+                    "vol_colors": vol_colors,
+                },
+                "indicators": {
+                    "ma50": safe_list(df["MA50"]), "ma200": safe_list(df["MA200"]),
+                    "bb_upper": safe_list(df["BB_upper"]), "bb_mid": safe_list(df["BB_mid"]),
+                    "bb_lower": safe_list(df["BB_lower"]), "bb_width": safe_list(df["BB_width"]),
+                    "bb_squeeze": [bool(x) for x in df["BB_squeeze"].fillna(False)],
+                    "rsi": safe_list(df["RSI"]), "macd": safe_list(df["MACD"]),
+                    "macd_sig": safe_list(df["MACD_sig"]), "macd_hist": safe_list(df["MACD_hist"]),
+                    "atr": safe_list(df["ATR"]), "obv": safe_list(df["OBV"]),
+                },
+            })
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 404
+        except Exception as e:
+            last_err = e
+            if attempt == 0:
+                time.sleep(0.5)
+
+    return jsonify({"error": f"Analysis failed: {last_err}"}), 500
 
 
 # ── Screener API ──────────────────────────────────────────────────────────────
