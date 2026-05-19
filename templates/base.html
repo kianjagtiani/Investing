@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}MKTS{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+  :root {
+    --bg:        #05080f;
+    --surface:   #090e1a;
+    --card:      #0c1220;
+    --card-hi:   #101828;
+    --border:    rgba(100,140,210,0.12);
+    --border-hi: rgba(100,140,210,0.22);
+    --divider:   rgba(100,140,210,0.08);
+
+    --green:     #06e896;
+    --green-dim: rgba(6,232,150,0.10);
+    --green-bd:  rgba(6,232,150,0.32);
+
+    --amber:     #f5a623;
+    --amber-dim: rgba(245,166,35,0.10);
+    --amber-bd:  rgba(245,166,35,0.32);
+
+    --red:       #ff3f5c;
+    --red-dim:   rgba(255,63,92,0.10);
+    --red-bd:    rgba(255,63,92,0.32);
+
+    --blue:      #3db8f5;
+    --blue-dim:  rgba(61,184,245,0.10);
+    --blue-bd:   rgba(61,184,245,0.32);
+
+    --purple:    #a78bfa;
+    --muted:     rgba(130,155,195,0.5);
+
+    --text:      #ccd8ee;
+    --text-dim:  #5a6e8c;
+    --text-bright: #eef4ff;
+
+    --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    --ui:   'Barlow', system-ui, sans-serif;
+    --head: 'Barlow Condensed', 'Barlow', system-ui, sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--ui);
+    min-height: 100vh;
+    position: relative;
+  }
+
+  /* Dot-grid atmosphere */
+  body::before {
+    content: '';
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image: radial-gradient(rgba(80,130,210,0.06) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+
+  /* ── Header ── */
+  header {
+    background: linear-gradient(180deg, #0d1728 0%, #080c18 100%);
+    border-bottom: 1px solid var(--border-hi);
+    padding: 13px 24px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    flex-wrap: wrap;
+    backdrop-filter: blur(4px);
+    position: relative;
+    z-index: 10;
+  }
+
+  .logo {
+    font-family: var(--head);
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--green);
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    text-transform: uppercase;
+    text-decoration: none;
+  }
+  .logo span { color: var(--text-bright); }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+  }
+
+  .nav-link {
+    font-family: var(--head);
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-decoration: none;
+    padding: 6px 14px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    letter-spacing: 0.3px;
+    transition: all 0.15s;
+  }
+  .nav-link:hover {
+    color: var(--text);
+    background: rgba(100,140,210,0.07);
+    border-color: var(--border);
+  }
+  .nav-link.active {
+    color: var(--green);
+    background: var(--green-dim);
+    border-color: var(--green-bd);
+  }
+
+  .nav-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--border-hi);
+    margin: 0 6px;
+  }
+
+  .nav-auth-btn {
+    font-family: var(--head);
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    padding: 6px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.15s;
+    border: 1px solid var(--border-hi);
+    color: var(--text-dim);
+    background: transparent;
+  }
+  .nav-auth-btn:hover {
+    color: var(--text-bright);
+    border-color: var(--border-hi);
+    background: rgba(100,140,210,0.08);
+  }
+  .nav-auth-btn.logout {
+    color: var(--red);
+    border-color: var(--red-bd);
+    background: var(--red-dim);
+  }
+  .nav-auth-btn.logout:hover {
+    opacity: 0.85;
+  }
+
+  /* ── Page content wrapper ── */
+  .page-content {
+    position: relative;
+    z-index: 1;
+  }
+
+  /* ── Flash messages ── */
+  .flash-messages {
+    position: relative;
+    z-index: 5;
+  }
+  .flash {
+    padding: 11px 24px;
+    font-size: 0.875rem;
+    border-bottom: 1px solid transparent;
+  }
+  .flash.error   { background: var(--red-dim); color: var(--red); border-color: var(--red-bd); }
+  .flash.success { background: var(--green-dim); color: var(--green); border-color: var(--green-bd); }
+  .flash.info    { background: var(--blue-dim); color: var(--blue); border-color: var(--blue-bd); }
+  .flash.warning { background: var(--amber-dim); color: var(--amber); border-color: var(--amber-bd); }
+
+  /* ── Plotly overrides ── */
+  .js-plotly-plot .plotly .modebar { background: transparent !important; }
+  .js-plotly-plot .plotly .modebar-btn path { fill: #484f58 !important; }
+
+  /* ── Common color utilities ── */
+  .green  { color: var(--green); }
+  .red    { color: var(--red); }
+  .blue   { color: var(--blue); }
+  .yellow { color: var(--amber); }
+  .purple { color: var(--purple); }
+
+  /* ── Card entrance animation ── */
+  @keyframes cardIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+{% block head %}{% endblock %}
+</head>
+<body>
+
+<header>
+  <a href="/" class="logo">MKTS<span>.</span></a>
+
+  <nav class="nav-links">
+    <a href="/" class="nav-link {% if request.endpoint == 'research' or request.path == '/' %}active{% endif %}">Research</a>
+    <a href="/portfolio" class="nav-link {% if request.endpoint == 'portfolio' %}active{% endif %}">Portfolio</a>
+    <div class="nav-divider"></div>
+    {% if current_user.is_authenticated %}
+      <span style="font-family:var(--mono);font-size:0.78rem;color:var(--text-dim);margin-right:4px;">{{ current_user.username }}</span>
+      <a href="/auth/logout" class="nav-auth-btn logout">Sign Out</a>
+    {% else %}
+      <a href="/auth/login" class="nav-auth-btn">Sign In</a>
+    {% endif %}
+  </nav>
+</header>
+
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-messages">
+      {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<div class="page-content">
+  {% block content %}{% endblock %}
+</div>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>
