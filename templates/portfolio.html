@@ -562,7 +562,7 @@ document.getElementById('add-pos-btn').addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ticker, exchange, entry_price: entry, shares, stop_loss: sl, t1, t2, notes }),
     });
-    const data = await res.json();
+    const data = await safeJson(res);
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     showMsg(msg, `Position in ${ticker} added.`, 'success');
     clearAddForm();
@@ -588,12 +588,28 @@ function showMsg(el, text, type) {
   setTimeout(() => { el.style.display = 'none'; }, 4000);
 }
 
+/* ── Safe JSON parse — avoids "Unexpected token <" when server returns HTML ── */
+async function safeJson(res) {
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.includes('application/json')) {
+    throw new Error(`Server error (HTTP ${res.status}) — try refreshing the page`);
+  }
+  return res.json();
+}
+
 /* ── Load and render all positions ── */
 async function loadPositions() {
   try {
     const res = await fetch('/api/positions');
-    const data = await res.json();
-    if (!res.ok) throw new Error(data._error || `HTTP ${res.status}`);
+    if (res.status === 401) {
+      document.getElementById('open-state').innerHTML =
+        '<div style="color:var(--amber);font-size:0.85rem;">Session expired — <a href="/auth/login" style="color:var(--green)">sign in again</a>.</div>';
+      document.getElementById('open-state').style.display = 'block';
+      document.getElementById('open-table').style.display = 'none';
+      return;
+    }
+    const data = await safeJson(res);
+    if (!res.ok) throw new Error(data._error || data.error || `HTTP ${res.status}`);
     renderPositions(data);
   } catch (err) {
     document.getElementById('open-state').innerHTML =
@@ -807,7 +823,7 @@ document.getElementById('close-modal-submit').addEventListener('click', async ()
       body: JSON.stringify({ close_price: price, shares_to_close: shares }),
     });
     if (!res.ok) {
-      const d = await res.json();
+      const d = await safeJson(res);
       errEl.textContent = d.error || `HTTP ${res.status}`;
       errEl.style.display = 'block';
       return;
@@ -827,7 +843,7 @@ async function deletePosition(id, ticker) {
   try {
     const res = await fetch(`/api/positions/${id}`, { method: 'DELETE' });
     if (!res.ok) {
-      const d = await res.json();
+      const d = await safeJson(res);
       alert(`Error: ${d.error || res.status}`);
       return;
     }

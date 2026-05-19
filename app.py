@@ -43,6 +43,14 @@ def load_user(user_id):
     return db.session.get(User, int(user_id))
 
 
+@login_manager.unauthorized_handler
+def unauthorized():
+    # API routes must return JSON, not an HTML redirect
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Authentication required"}), 401
+    return redirect(url_for("auth_bp.login"))
+
+
 app.register_blueprint(auth_bp)
 
 VALID_PERIODS = {"3mo", "6mo", "1y", "3y"}
