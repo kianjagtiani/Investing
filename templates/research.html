@@ -597,7 +597,11 @@ async function fetchScreener() {
   try {
     const res = await fetch(`/api/screener?${params}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    screenerData = await res.json();
+    const data = await res.json();
+    screenerData = data.results || [];
+    if (data.last_scan) {
+      document.getElementById('last-scanned').textContent = `Last scanned: ${data.last_scan}`;
+    }
     renderTable();
   } catch (err) {
     showTableState(`Failed to load screener: ${err.message}`, false);
@@ -607,14 +611,17 @@ async function fetchScreener() {
 /* ── Render table ── */
 function renderTable() {
   let rows = screenerData.filter(r => {
-    if (minScore > 0 && (r.score == null || r.score < minScore)) return false;
+    if (minScore > 0 && (r.signal_score == null || r.signal_score < minScore)) return false;
     if (activePhase !== 'ALL' && r.phase !== activePhase) return false;
     return true;
   });
 
-  // Sort
+  // Normalise sort column names to match API field names
+  const colMap = { score: 'signal_score', price: 'close', company: 'company_name', ticker: 'ticker', exchange: 'exchange', phase: 'phase', t1: 't1', t2: 't2', sl: 'stop_loss', rr: 'rr' };
+  const sortField = colMap[sortCol] || sortCol;
+
   rows.sort((a, b) => {
-    let av = a[sortCol], bv = b[sortCol];
+    let av = a[sortField], bv = b[sortField];
     if (av == null) av = sortDir === 'asc' ? Infinity : -Infinity;
     if (bv == null) bv = sortDir === 'asc' ? Infinity : -Infinity;
     if (typeof av === 'string') return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
@@ -636,8 +643,9 @@ function renderTable() {
   table.style.display = 'table';
 
   tbody.innerHTML = rows.map(r => {
-    const scoreClass = r.score >= 70 ? 'score-green' : r.score >= 40 ? 'score-amber' : 'score-red';
-    const scoreTxt = r.score != null ? r.score.toFixed(0) : '—';
+    const score = r.signal_score;
+    const scoreClass = score >= 70 ? 'score-green' : score >= 40 ? 'score-amber' : 'score-red';
+    const scoreTxt = score != null ? score.toFixed(0) : '—';
 
     let phClass = 'ph-x', phLabel = r.phase || '—';
     if (r.phase) {
@@ -652,13 +660,13 @@ function renderTable() {
     return `<tr onclick="window.location.href='/stock/${encodeURIComponent(r.ticker)}'">
       <td><span class="score-badge ${scoreClass}">${scoreTxt}</span></td>
       <td class="td-ticker">${escHtml(r.ticker)}</td>
-      <td class="td-company" title="${escHtml(r.company || '')}">${escHtml(r.company || '—')}</td>
+      <td class="td-company" title="${escHtml(r.company_name || '')}">${escHtml(r.company_name || '—')}</td>
       <td><span class="exch-badge">${escHtml(r.exchange || '—')}</span></td>
-      <td class="td-price">${fmtN(r.price)}</td>
+      <td class="td-price">${fmtN(r.close)}</td>
       <td><span class="phase-badge-sm ${phClass}">${escHtml(phLabel)}</span></td>
       <td class="td-level">${fmtN(r.t1)}</td>
       <td class="td-level">${fmtN(r.t2)}</td>
-      <td class="td-level">${fmtN(r.sl)}</td>
+      <td class="td-level">${fmtN(r.stop_loss)}</td>
       <td class="td-rr">${r.rr != null ? parseFloat(r.rr).toFixed(2) + 'x' : '—'}</td>
     </tr>`;
   }).join('');
@@ -701,8 +709,7 @@ async function pollScanStatus() {
     updateScanStatus(data.status);
 
     if (data.last_scanned) {
-      const ts = new Date(data.last_scanned);
-      document.getElementById('last-scanned').textContent = `Last scanned: ${ts.toLocaleTimeString()}`;
+      document.getElementById('last-scanned').textContent = `Last scanned: ${data.last_scanned}`;
     }
 
     if (data.status !== 'running') {
@@ -711,7 +718,6 @@ async function pollScanStatus() {
       const btn = document.getElementById('refresh-btn');
       btn.textContent = 'Refresh Screener';
       btn.disabled = false;
-      // Re-fetch screener data after scan completes
       fetchScreener();
     }
   } catch (_) {}
@@ -748,8 +754,7 @@ function escHtml(str) {
     const data = await res.json();
     updateScanStatus(data.status);
     if (data.last_scanned) {
-      const ts = new Date(data.last_scanned);
-      document.getElementById('last-scanned').textContent = `Last scanned: ${ts.toLocaleTimeString()}`;
+      document.getElementById('last-scanned').textContent = `Last scanned: ${data.last_scanned}`;
     }
     if (data.status === 'running') startScanPoll();
   } catch (_) {}

@@ -40,7 +40,7 @@ login_manager.login_view = "auth_bp.login"
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(int(user_id))
+    return db.session.get(User, int(user_id))
 
 
 app.register_blueprint(auth_bp)
@@ -216,7 +216,12 @@ def trigger_scan():
 
 @app.route("/api/scan/status")
 def scan_status():
-    return jsonify({"running": _scan_running})
+    latest = ScanResult.query.order_by(ScanResult.last_scanned.desc()).first()
+    last_scanned = latest.last_scanned.strftime("%Y-%m-%d %H:%M UTC") if latest and latest.last_scanned else None
+    return jsonify({
+        "status": "running" if _scan_running else "idle",
+        "last_scanned": last_scanned,
+    })
 
 
 # ── Positions API ─────────────────────────────────────────────────────────────
