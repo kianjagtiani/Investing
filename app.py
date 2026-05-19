@@ -237,8 +237,18 @@ def get_positions():
             .all()
         )
     except Exception as exc:
-        import traceback
-        return jsonify({"_error": str(exc), "_trace": traceback.format_exc()}), 500
+        # Table may not exist yet — try to create it and retry once
+        try:
+            db.create_all()
+            positions = (
+                Position.query
+                .filter_by(user_id=current_user.id)
+                .order_by(Position.opened_at.desc())
+                .all()
+            )
+        except Exception as exc2:
+            import traceback
+            return jsonify({"_error": str(exc2), "_trace": traceback.format_exc()}), 500
     result = []
     for p in positions:
         scan = ScanResult.query.filter_by(ticker=p.ticker).first()

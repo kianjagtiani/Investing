@@ -571,9 +571,9 @@ function showMsg(el, text, type) {
 async function loadPositions() {
   try {
     const res = await fetch('/api/positions');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const positions = await res.json();
-    renderPositions(positions);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data._error || `HTTP ${res.status}`);
+    renderPositions(data);
   } catch (err) {
     document.getElementById('open-state').innerHTML =
       `<div style="color:var(--red);font-size:0.85rem;">Failed to load positions: ${err.message}</div>`;
@@ -583,8 +583,8 @@ async function loadPositions() {
 }
 
 function renderPositions(positions) {
-  const openPositions   = positions.filter(p => p.status === 'OPEN');
-  const closedPositions = positions.filter(p => p.status === 'CLOSED');
+  const openPositions   = positions.filter(p => p.is_open);
+  const closedPositions = positions.filter(p => !p.is_open);
 
   renderOpenTable(openPositions);
   renderClosedTable(closedPositions);
@@ -666,8 +666,8 @@ function renderOpenTable(rows) {
       <td class="td-mono" style="color:${pnlColor}">${pnlStr}</td>
       <td class="td-mono" style="color:${pnlColor}">${pctStr}</td>
       <td class="td-mono" style="color:var(--red)">${p.stop_loss ? fmtN(p.stop_loss) : '—'}</td>
-      <td class="td-mono" style="color:var(--green)">${p.t1 ? fmtN(p.t1) : '—'}</td>
-      <td class="td-mono" style="color:var(--blue)">${p.t2 ? fmtN(p.t2) : '—'}</td>
+      <td class="td-mono" style="color:var(--green)">${p.target1 ? fmtN(p.target1) : '—'}</td>
+      <td class="td-mono" style="color:var(--blue)">${p.target2 ? fmtN(p.target2) : '—'}</td>
       <td class="td-dim">${openedDate}</td>
       <td><span class="status-badge status-open">Open</span></td>
       <td>
