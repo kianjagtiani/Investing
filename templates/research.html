@@ -370,6 +370,31 @@
   .score-amber  { background: var(--amber-dim); color: var(--amber); border: 1px solid var(--amber-bd); }
   .score-red    { background: var(--red-dim);   color: var(--red);   border: 1px solid var(--red-bd);   }
 
+  /* Signal label */
+  .signal-badge {
+    display: inline-block;
+    font-family: var(--head);
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 3px 9px;
+    border-radius: 3px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .sig-strong { background: rgba(6,232,150,0.18); color: #06e896; border: 1px solid rgba(6,232,150,0.4); }
+  .sig-buy    { background: var(--green-dim);     color: var(--green); border: 1px solid var(--green-bd); }
+  .sig-watch  { background: var(--amber-dim);     color: var(--amber); border: 1px solid var(--amber-bd); }
+  .sig-weak   { background: rgba(130,155,195,0.07); color: var(--text-dim); border: 1px solid var(--border-hi); }
+
+  /* Count label */
+  .result-count {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    margin-left: 6px;
+  }
+
   /* Phase badge */
   .phase-badge-sm {
     display: inline-block;
@@ -452,7 +477,8 @@
 
     <!-- Header + filters -->
     <div class="screener-header">
-      <span class="screener-title">Screener</span>
+      <span class="screener-title">Stage 2 Screener</span>
+      <span class="result-count" id="result-count"></span>
 
       <div class="exchange-tabs">
         <button class="exch-tab active" data-exch="ALL">ALL</button>
@@ -470,8 +496,8 @@
         <div class="filter-item">
           Phase
           <select class="phase-select" id="phase-select">
-            <option value="ALL">All</option>
-            <option value="Phase 2">Phase 2</option>
+            <option value="Phase 2" selected>Phase 2</option>
+            <option value="ALL">All Phases</option>
             <option value="Phase 1">Phase 1</option>
             <option value="Phase 3">Phase 3</option>
             <option value="Phase 4">Phase 4</option>
@@ -496,12 +522,12 @@
       <table class="screener-table" id="screener-table" style="display:none;">
         <thead>
           <tr>
+            <th data-col="signal">Signal</th>
             <th data-col="score">Score</th>
             <th data-col="ticker">Ticker</th>
             <th data-col="company">Company</th>
-            <th data-col="exchange">Exchange</th>
+            <th data-col="exchange">Exch</th>
             <th data-col="price">Price</th>
-            <th data-col="phase">Phase</th>
             <th data-col="t1">T1</th>
             <th data-col="t2">T2</th>
             <th data-col="sl">SL</th>
@@ -543,7 +569,7 @@ document.getElementById('search-btn').addEventListener('click', () => {
 let screenerData = [];
 let activeExch = 'ALL';
 let minScore = 0;
-let activePhase = 'ALL';
+let activePhase = 'Phase 2';
 let sortCol = 'score';
 let sortDir = 'desc';
 let scanPollTimer = null;
@@ -570,7 +596,7 @@ document.querySelectorAll('.exch-tab').forEach(tab => {
 /* ── Phase select ── */
 document.getElementById('phase-select').addEventListener('change', e => {
   activePhase = e.target.value;
-  renderTable();
+  fetchScreener();  // re-fetch so backend applies phase filter
 });
 
 /* ── Column sort ── */
@@ -594,6 +620,7 @@ document.querySelectorAll('.screener-table thead th').forEach(th => {
 /* ── Fetch screener data ── */
 async function fetchScreener() {
   const params = new URLSearchParams({ exchange: activeExch, min_score: minScore });
+  if (activePhase !== 'ALL') params.set('phase', activePhase);
   try {
     const res = await fetch(`/api/screener?${params}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -608,16 +635,27 @@ async function fetchScreener() {
   }
 }
 
+/* ── Signal helpers ── */
+function signalLabel(score) {
+  if (score >= 75) return ['STRONG BUY', 'sig-strong'];
+  if (score >= 55) return ['BUY',         'sig-buy'];
+  if (score >= 35) return ['WATCH',       'sig-watch'];
+  return                  ['WEAK SETUP',  'sig-weak'];
+}
+
 /* ── Render table ── */
 function renderTable() {
   let rows = screenerData.filter(r => {
     if (minScore > 0 && (r.signal_score == null || r.signal_score < minScore)) return false;
-    if (activePhase !== 'ALL' && r.phase !== activePhase) return false;
     return true;
   });
 
-  // Normalise sort column names to match API field names
-  const colMap = { score: 'signal_score', price: 'close', company: 'company_name', ticker: 'ticker', exchange: 'exchange', phase: 'phase', t1: 't1', t2: 't2', sl: 'stop_loss', rr: 'rr' };
+  const colMap = {
+    signal: 'signal_score', score: 'signal_score',
+    price: 'close', company: 'company_name',
+    ticker: 'ticker', exchange: 'exchange',
+    t1: 't1', t2: 't2', sl: 'stop_loss', rr: 'rr',
+  };
   const sortField = colMap[sortCol] || sortCol;
 
   rows.sort((a, b) => {
@@ -631,39 +669,42 @@ function renderTable() {
   const tbody = document.getElementById('screener-tbody');
   const table = document.getElementById('screener-table');
   const state = document.getElementById('table-state');
+  const countEl = document.getElementById('result-count');
+
+  if (countEl) {
+    countEl.textContent = rows.length > 0 ? `${rows.length} stocks` : '';
+  }
 
   if (rows.length === 0) {
     table.style.display = 'none';
     state.style.display = 'block';
-    state.innerHTML = '<div class="table-empty">No results match the current filters.</div>';
+    const phaseNote = activePhase === 'Phase 2'
+      ? 'No Stage 2 stocks found — run a scan to populate the screener.'
+      : 'No results match the current filters.';
+    state.innerHTML = `<div class="table-empty">${phaseNote}</div>`;
     return;
   }
 
   state.style.display = 'none';
   table.style.display = 'table';
 
+  const fmtN = v => v != null
+    ? parseFloat(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : '—';
+
   tbody.innerHTML = rows.map(r => {
-    const score = r.signal_score;
-    const scoreClass = score >= 70 ? 'score-green' : score >= 40 ? 'score-amber' : 'score-red';
-    const scoreTxt = score != null ? score.toFixed(0) : '—';
-
-    let phClass = 'ph-x', phLabel = r.phase || '—';
-    if (r.phase) {
-      if (r.phase.includes('2')) phClass = 'ph-2';
-      else if (r.phase.includes('1')) phClass = 'ph-1';
-      else if (r.phase.includes('3')) phClass = 'ph-3';
-      else if (r.phase.includes('4')) phClass = 'ph-4';
-    }
-
-    const fmtN = v => v != null ? parseFloat(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+    const score = r.signal_score != null ? r.signal_score : 0;
+    const [sigText, sigClass] = signalLabel(score);
+    const scoreClass = score >= 75 ? 'score-green' : score >= 55 ? 'score-green' : score >= 35 ? 'score-amber' : 'score-red';
+    const scoreTxt = r.signal_score != null ? r.signal_score.toFixed(0) : '—';
 
     return `<tr onclick="window.location.href='/stock/${encodeURIComponent(r.ticker)}'">
+      <td><span class="signal-badge ${sigClass}">${sigText}</span></td>
       <td><span class="score-badge ${scoreClass}">${scoreTxt}</span></td>
       <td class="td-ticker">${escHtml(r.ticker)}</td>
       <td class="td-company" title="${escHtml(r.company_name || '')}">${escHtml(r.company_name || '—')}</td>
       <td><span class="exch-badge">${escHtml(r.exchange || '—')}</span></td>
       <td class="td-price">${fmtN(r.close)}</td>
-      <td><span class="phase-badge-sm ${phClass}">${escHtml(phLabel)}</span></td>
       <td class="td-level">${fmtN(r.t1)}</td>
       <td class="td-level">${fmtN(r.t2)}</td>
       <td class="td-level">${fmtN(r.stop_loss)}</td>
