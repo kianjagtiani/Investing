@@ -483,6 +483,7 @@
             <th>Opened</th>
             <th>Closed</th>
             <th>Status</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody id="closed-tbody"></tbody>
@@ -496,6 +497,26 @@
     <div id="chart-pnl"></div>
   </div>
 
+</div>
+
+<!-- ── Close Position Modal ── -->
+<div id="close-modal-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:100;display:none;align-items:center;justify-content:center;">
+  <div style="background:var(--card);border:1px solid var(--border-hi);border-radius:8px;padding:28px 32px;width:100%;max-width:360px;box-shadow:0 8px 40px rgba(0,0,0,0.5);">
+    <div style="font-family:var(--head);font-size:1.1rem;font-weight:700;color:var(--text-bright);margin-bottom:18px;">Close Position — <span id="close-modal-ticker" style="color:var(--green)"></span></div>
+    <div style="margin-bottom:14px;">
+      <label style="display:block;font-family:var(--head);font-size:0.7rem;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px;">Close Price</label>
+      <input id="close-modal-price" type="number" step="0.01" min="0" style="width:100%;background:rgba(100,140,210,0.07);border:1px solid var(--border-hi);color:var(--text-bright);padding:9px 13px;border-radius:5px;font-size:0.93rem;font-family:var(--mono);outline:none;">
+    </div>
+    <div style="margin-bottom:20px;">
+      <label style="display:block;font-family:var(--head);font-size:0.7rem;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px;">Shares to Close <span style="color:var(--text-dim);font-weight:400;">(max: <span id="close-modal-max"></span>)</span></label>
+      <input id="close-modal-shares" type="number" step="0.01" min="0.01" style="width:100%;background:rgba(100,140,210,0.07);border:1px solid var(--border-hi);color:var(--text-bright);padding:9px 13px;border-radius:5px;font-size:0.93rem;font-family:var(--mono);outline:none;">
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button id="close-modal-submit" style="flex:1;background:var(--green);border:none;color:#020c08;padding:10px;border-radius:5px;font-family:var(--head);font-weight:700;font-size:0.9rem;cursor:pointer;">Confirm Close</button>
+      <button onclick="closeModal()" style="flex:1;background:transparent;border:1px solid var(--border-hi);color:var(--text-dim);padding:10px;border-radius:5px;font-family:var(--head);font-weight:600;font-size:0.9rem;cursor:pointer;">Cancel</button>
+    </div>
+    <div id="close-modal-err" style="display:none;color:var(--red);font-size:0.82rem;margin-top:10px;"></div>
+  </div>
 </div>
 {% endblock %}
 
@@ -671,7 +692,7 @@ function renderOpenTable(rows) {
       <td class="td-dim">${openedDate}</td>
       <td><span class="status-badge status-open">Open</span></td>
       <td>
-        <button class="action-btn close-btn" onclick="closePosition(${p.id}, '${escHtml(p.ticker)}')">Close</button>
+        <button class="action-btn close-btn" onclick="closePosition(${p.id}, '${escHtml(p.ticker)}', ${p.shares})">Close</button>
         <button class="action-btn delete-btn" onclick="deletePosition(${p.id}, '${escHtml(p.ticker)}')">Delete</button>
       </td>
     </tr>`;
@@ -715,6 +736,7 @@ function renderClosedTable(rows) {
       <td class="td-dim">${openedDate}</td>
       <td class="td-dim">${closedDate}</td>
       <td><span class="status-badge status-closed">Closed</span></td>
+      <td><button class="action-btn delete-btn" onclick="deletePosition(${p.id}, '${escHtml(p.ticker)}')">Delete</button></td>
     </tr>`;
   }).join('');
 }
@@ -752,27 +774,51 @@ function renderPnLChart(closed) {
   }, PLOT_CFG);
 }
 
-/* ── Close position ── */
-async function closePosition(id, ticker) {
-  const closePrice = prompt(`Close price for ${ticker}?`);
-  if (!closePrice || isNaN(parseFloat(closePrice))) return;
+/* ── Close position modal ── */
+let _closeId = null;
+
+function closePosition(id, ticker, maxShares) {
+  _closeId = id;
+  document.getElementById('close-modal-ticker').textContent = ticker;
+  document.getElementById('close-modal-max').textContent = maxShares;
+  document.getElementById('close-modal-shares').value = maxShares;
+  document.getElementById('close-modal-price').value = '';
+  document.getElementById('close-modal-err').style.display = 'none';
+  const overlay = document.getElementById('close-modal-overlay');
+  overlay.style.display = 'flex';
+}
+
+function closeModal() {
+  document.getElementById('close-modal-overlay').style.display = 'none';
+  _closeId = null;
+}
+
+document.getElementById('close-modal-submit').addEventListener('click', async () => {
+  const price = parseFloat(document.getElementById('close-modal-price').value);
+  const shares = parseFloat(document.getElementById('close-modal-shares').value);
+  const errEl = document.getElementById('close-modal-err');
+  if (isNaN(price) || price <= 0) { errEl.textContent = 'Enter a valid close price.'; errEl.style.display = 'block'; return; }
+  if (isNaN(shares) || shares <= 0) { errEl.textContent = 'Enter shares to close.'; errEl.style.display = 'block'; return; }
 
   try {
-    const res = await fetch(`/api/positions/${id}`, {
+    const res = await fetch(`/api/positions/${_closeId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ close_price: parseFloat(closePrice) }),
+      body: JSON.stringify({ close_price: price, shares_to_close: shares }),
     });
     if (!res.ok) {
       const d = await res.json();
-      alert(`Error: ${d.error || res.status}`);
+      errEl.textContent = d.error || `HTTP ${res.status}`;
+      errEl.style.display = 'block';
       return;
     }
+    closeModal();
     loadPositions();
   } catch (err) {
-    alert(`Network error: ${err.message}`);
+    errEl.textContent = `Network error: ${err.message}`;
+    errEl.style.display = 'block';
   }
-}
+});
 
 /* ── Delete position ── */
 async function deletePosition(id, ticker) {

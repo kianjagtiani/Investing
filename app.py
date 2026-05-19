@@ -205,27 +205,41 @@ def screener():
 
 
 # ── Scan trigger ──────────────────────────────────────────────────────────────
+# Use a /tmp file so the running state is shared across Gunicorn workers.
 
-_scan_running = False
+import time as _time
+
+_SCAN_LOCK = "/tmp/mkts_scan.lock"
+_SCAN_MAX_AGE = 1200  # 20 min — consider stale after this
+
+
+def _scan_is_running():
+    try:
+        return (os.path.exists(_SCAN_LOCK) and
+                _time.time() - os.path.getmtime(_SCAN_LOCK) < _SCAN_MAX_AGE)
+    except OSError:
+        return False
 
 
 @app.route("/api/scan/trigger", methods=["POST"])
 def trigger_scan():
-    global _scan_running
     secret = request.headers.get("X-Scan-Secret", "")
     if SCAN_SECRET and secret != SCAN_SECRET:
         abort(403)
-    if _scan_running:
+    if _scan_is_running():
         return jsonify({"status": "already_running"}), 202
 
-    _scan_running = True
+    with open(_SCAN_LOCK, "w") as f:
+        f.write(str(_time.time()))
 
     def _run():
-        global _scan_running
         try:
             run_full_scan(app)
         finally:
-            _scan_running = False
+            try:
+                os.remove(_SCAN_LOCK)
+            except OSError:
+                pass
 
     threading.Thread(target=_run, daemon=True).start()
     return jsonify({"status": "started"}), 202
@@ -236,7 +250,7 @@ def scan_status():
     latest = ScanResult.query.order_by(ScanResult.last_scanned.desc()).first()
     last_scanned = latest.last_scanned.strftime("%Y-%m-%d %H:%M UTC") if latest and latest.last_scanned else None
     return jsonify({
-        "status": "running" if _scan_running else "idle",
+        "status": "running" if _scan_is_running() else "idle",
         "last_scanned": last_scanned,
     })
 
@@ -316,9 +330,35 @@ def update_position(position_id):
     p = Position.query.filter_by(id=position_id, user_id=current_user.id).first_or_404()
     data = request.get_json()
     if "close_price" in data:
-        p.close_price = float(data["close_price"])
-        p.closed_at = datetime.datetime.utcnow()
-        p.realized_pnl = round((p.close_price - p.entry_price) * p.shares, 2)
+        close_price = float(data["close_price"])
+        shares_to_close = float(data.get("shares_to_close") or p.shares)
+        shares_to_close = min(shares_to_close, p.shares)
+
+        if shares_to_close < p.shares:
+            # Partial close: create a closed record for the sold shares
+            closed_leg = Position(
+                user_id=p.user_id,
+                ticker=p.ticker,
+                exchange=p.exchange,
+                company_name=p.company_name,
+                entry_price=p.entry_price,
+                shares=shares_to_close,
+                stop_loss=p.stop_loss,
+                target1=p.target1,
+                target2=p.target2,
+                notes=p.notes,
+                opened_at=p.opened_at,
+                closed_at=datetime.datetime.utcnow(),
+                close_price=close_price,
+                realized_pnl=round((close_price - p.entry_price) * shares_to_close, 2),
+            )
+            db.session.add(closed_leg)
+            p.shares = round(p.shares - shares_to_close, 8)
+        else:
+            # Full close
+            p.close_price = close_price
+            p.closed_at = datetime.datetime.utcnow()
+            p.realized_pnl = round((close_price - p.entry_price) * p.shares, 2)
     if "stop_loss" in data:
         p.stop_loss = float(data["stop_loss"]) if data["stop_loss"] else None
     if "target1" in data:
